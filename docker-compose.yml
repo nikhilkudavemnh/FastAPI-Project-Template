@@ -1,0 +1,57 @@
+x-app-base: &app-base
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://app:app@db:5432/app
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  # Monolith mode: every module in one process.
+  api:
+    <<: *app-base
+    environment:
+      ENABLED_MODULES: auth,users,roles,ai
+    ports: ["8000:8000"]
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  # Microservice mode example: same image, different modules + service name.
+  # Uncomment to run AI as its own service.
+  # ai-service:
+  #   <<: *app-base
+  #   environment:
+  #     SERVICE_NAME: ai-service
+  #     ENABLED_MODULES: auth,ai
+  #   ports: ["8001:8000"]
+
+  # Worker slot: enable once a real TASK_BACKEND (e.g. celery) is wired.
+  # worker:
+  #   <<: *app-base
+  #   environment:
+  #     TASK_BACKEND: celery
+  #   command: python -m app.worker
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports: ["6379:6379"]
+
+volumes:
+  pgdata:
